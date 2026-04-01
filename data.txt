@@ -54,6 +54,7 @@ source install/setup.bash
 colcon build
 
 ros2 topic list
+ros2 topic echo /camera/x|y|distance|type
 ros2 topic echo /scan
 ros2 run RplidarC1 RpLidarC1
 ros2 topic echo /RplidarC1
