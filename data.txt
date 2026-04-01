@@ -12,7 +12,7 @@ ros2 run main minimal
 ros2 run main RC
 ros2 run realSenceCam realSenceCam
 
-ros2 run RplidarC1 RplidarC1
+ros2 run RplidarC1 RpLidarC1
 
 ================================================================================================================================================
 
