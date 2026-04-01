@@ -16,6 +16,7 @@ class MotorTestEncoder(Node):
         self.encoders_start = None
         self.gy25_angle = None
         self.target_sum = 0
+        self.encoder_sum_per_cm = 115000.0 / 510.0
 
     def encoders_callback(self, msg):
         if len(msg.data) < 4:
@@ -34,22 +35,28 @@ class MotorTestEncoder(Node):
         if self.encoders_start is None or self.encoders is None:
             return False
 
-        traveled = [
-            abs(current - start)
-            for current, start in zip(self.encoders, self.encoders_start)
-        ]
-        total = sum(traveled)
+        total = self.traveled_encoder_sum()
         gy25_info = self.gy25_angle if self.gy25_angle is not None else 'N/A'
         self.get_logger().info(f'Traveled total={total} | GY25 angle={gy25_info}')
         return total >= self.target_sum
 
-    def normalize_angle(self, angle):
-        """Нормализует угол в диапазон [-180, 180)."""
-        return ((angle + 180) % 360) - 180
-
     def angle_delta(self, current_angle, start_angle):
-        """Возвращает signed delta от стартового угла с учетом перехода через +/-180."""
-        return self.normalize_angle(current_angle - start_angle)
+        """Возвращает signed delta от стартового угла для накопленного угла gy25."""
+        return current_angle - start_angle
+
+    def traveled_encoder_sum(self):
+        """Возвращает сумму модулей изменений по 4 энкодерам от стартовой точки."""
+        if self.encoders_start is None or self.encoders is None:
+            return 0
+
+        return sum(
+            abs(current - start)
+            for current, start in zip(self.encoders, self.encoders_start)
+        )
+
+    def cm_to_encoder_sum(self, distance_cm):
+        """Переводит сантиметры в целевую сумму энкодеров."""
+        return abs(distance_cm) * self.encoder_sum_per_cm
 
     def start_motors(self, left_speed, right_speed):
         msg = Twist()
@@ -109,8 +116,60 @@ class MotorTestEncoder(Node):
             self.get_logger().info(f'Waiting {delay_after} seconds before next action...')
             self.wait(delay_after)
 
-    def rotate(self, angle, turn_speed=20, delay_after=1.0):
-        """Повернуть робот на заданный угол по данным gy25."""
+    def forward(self, distance_cm, max_speed=60, min_speed=10, kp=0.005, distance_tolerance_cm=2.0, delay_after=1.0):
+        """Движение вперед/назад на заданное расстояние в сантиметрах с P-регулятором."""
+        if self.encoders is None:
+            self.get_logger().warn('Encoders are not initialized yet, waiting...')
+            self.wait_for_encoder_initialization()
+
+        if distance_cm == 0:
+            self.get_logger().info('Forward skipped: target distance is 0 cm')
+            return
+
+        self.encoders_start = self.encoders.copy()
+        target_sum = self.cm_to_encoder_sum(distance_cm)
+        tolerance_sum = self.cm_to_encoder_sum(distance_tolerance_cm)
+        direction = 1 if distance_cm > 0 else -1
+        last_command_speed = None
+
+        self.get_logger().info(
+            f'Forward start: distance_cm={distance_cm} | target_sum={target_sum:.1f} | tolerance_sum={tolerance_sum:.1f}'
+        )
+
+        while rclpy.ok():
+            rclpy.spin_once(self, timeout_sec=0.02)
+            traveled_sum = self.traveled_encoder_sum()
+            remaining_sum = target_sum - traveled_sum
+            gy25_info = self.gy25_angle if self.gy25_angle is not None else 'N/A'
+            self.get_logger().info(
+                f'Forward progress: traveled_sum={traveled_sum:.1f} | remaining_sum={remaining_sum:.1f} | GY25 angle={gy25_info}'
+            )
+
+            if abs(remaining_sum) <= tolerance_sum:
+                break
+
+            command_speed = int(kp * abs(remaining_sum))
+            command_speed = max(min_speed, min(max_speed, command_speed))
+            signed_speed = direction * command_speed
+
+            if last_command_speed != signed_speed:
+                self.get_logger().info(
+                    f'Forward control: remaining_sum={remaining_sum:.1f} | speed={signed_speed}'
+                )
+                self.start_motors(signed_speed, signed_speed)
+                last_command_speed = signed_speed
+
+        self.stop_motors()
+        self.get_logger().info(
+            f'Forward end: traveled_sum={self.traveled_encoder_sum():.1f} | target_sum={target_sum:.1f}'
+        )
+
+        if delay_after > 0:
+            self.get_logger().info(f'Waiting {delay_after} seconds before next action...')
+            self.wait(delay_after)
+
+    def rotate(self, angle, max_turn_speed=20, min_turn_speed=5, kp=0.35, angle_tolerance=6, delay_after=1.0):
+        """Повернуть робот на заданный угол по данным gy25 с P-регулятором."""
         if self.gy25_angle is None:
             self.get_logger().warn('GY25 angle is not initialized yet, waiting...')
             self.wait_for_gy25_initialization()
@@ -120,30 +179,40 @@ class MotorTestEncoder(Node):
             return
 
         start_angle = self.gy25_angle
-        target_angle = self.normalize_angle(start_angle + angle)
+        target_angle = start_angle + angle
         self.get_logger().info(
             f'Rotate start: start={start_angle} | delta={angle} | target={target_angle}'
         )
 
-        if angle > 0:
-            self.start_motors(-turn_speed, turn_speed)
-        else:
-            self.start_motors(turn_speed, -turn_speed)
+        last_command_speed = None
 
         while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
+            rclpy.spin_once(self, timeout_sec=0.02)
             if self.gy25_angle is None:
                 continue
 
             current_delta = self.angle_delta(self.gy25_angle, start_angle)
+            remaining = angle - current_delta
             self.get_logger().info(
-                f'Rotate progress: current={self.gy25_angle} | delta={current_delta} | target_delta={angle}'
+                f'Rotate progress: current={self.gy25_angle} | delta={current_delta} | remaining={remaining}'
             )
 
-            if angle > 0 and current_delta >= angle:
+            if abs(remaining) <= angle_tolerance:
                 break
-            if angle < 0 and current_delta <= angle:
-                break
+
+            command_speed = int(kp * abs(remaining))
+            command_speed = max(min_turn_speed, min(max_turn_speed, command_speed))
+            direction = 1 if remaining > 0 else -1
+
+            if last_command_speed != direction * command_speed:
+                self.get_logger().info(
+                    f'Rotate control: remaining={remaining} | speed={command_speed} | direction={direction}'
+                )
+                if direction > 0:
+                    self.start_motors(-command_speed, command_speed)
+                else:
+                    self.start_motors(command_speed, -command_speed)
+                last_command_speed = direction * command_speed
 
         self.stop_motors()
         self.get_logger().info(
@@ -156,11 +225,8 @@ class MotorTestEncoder(Node):
 
     def algorithm(self):
 
-        def forward(distance):
-            self.move(20, 20, distance, delay_after=2.0)
-
         def left(angle):
-            self.rotate(angle, turn_speed=20, delay_after=2.0)
+            self.rotate(angle, max_turn_speed=20, delay_after=1.0)
 
         def delay(time_sec):
             self.wait(time_sec)
@@ -170,8 +236,10 @@ class MotorTestEncoder(Node):
         self.wait_for_encoder_initialization()
         self.get_logger().info('Algorithm: initialization done, starting motors')
 
-        forward(5000)
-        left(90)
+        self.forward(510)
+        # left(-90)
+        # left(-180)
+        # left(-270)
 
         # self.move(20, 20, 100, delay_after=2.0)
         # self.move(20, -20, 1150, delay_after=2.0)
