@@ -19,7 +19,7 @@ class RGBRecorder(Node):
         super().__init__('rgb_recorder')
         
         # === НАСТРОЙКИ ===
-        self.base_dir = '/home/pi/recordings'
+        self.base_dir = os.path.join(os.path.expanduser('~'), 'recordings')
         self.recording_name = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         self.save_dir = os.path.join(self.base_dir, self.recording_name)
         
