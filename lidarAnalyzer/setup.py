@@ -25,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'lidarAnalyzer = lidarAnalyzer.lidarAnalyzer_node:main',
+            'lidarAnalyzer_node = lidarAnalyzer.lidarAnalyzer_node:main',
+            'lidarAnalyzer_service = lidarAnalyzer.lidarAnalyzer_service:main',
         ],
     },
 )
