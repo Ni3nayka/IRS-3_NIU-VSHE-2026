@@ -53,7 +53,7 @@ class RGBRecorderDirect(Node):
         self.fd = sys.stdin.fileno()
         self.old_settings = termios.tcgetattr(self.fd)
         
-        # === ИНИЦИАЛИЗАЦИЯ КАМЕРЫ С ПОВТОРНЫМИ ПОПЫТКАМИ ===
+        # === ИНИЦИАЛИЗАЦИЯ КАМЕРЫ ===
         if not self._init_camera_with_retry():
             self.get_logger().error('❌ Failed to initialize camera after retries. Exiting.')
             self.running = False
@@ -76,19 +76,22 @@ class RGBRecorderDirect(Node):
                 self.ctx = rs.context()
                 devices = self.ctx.query_devices()
                 
-                # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА: итерируемся по device_list
-                device_count = 0
+                # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА - итерируемся по device_list
+                device_list = []
                 for dev in devices:
-                    device_count += 1
-                    self.get_logger().info(f'📷 Found device: {dev.get_info(rs.camera_info.name)}')
+                    device_list.append(dev)
                 
-                if device_count == 0:
+                self.get_logger().info(f'📷 Devices found: {len(device_list)}')
+                for i, dev in enumerate(device_list):
+                    self.get_logger().info(f'   Device {i}: {dev.get_info(rs.camera_info.name)}')
+                
+                if len(device_list) == 0:
                     self.get_logger().warn(f'Attempt {attempt}/{max_attempts}: No devices found. Waiting...')
                     time.sleep(delay)
                     continue
                 
                 # Берём первое устройство
-                self.device = devices[0]
+                self.device = device_list[0]
                 self.camera_name = self.device.get_info(rs.camera_info.name)
                 
                 self.pipeline = rs.pipeline(ctx=self.ctx)
