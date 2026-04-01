@@ -24,7 +24,7 @@ setup(
     # },
     entry_points={
         'console_scripts': [
-            'RpLidarC1 = RpLidarC1.RpLidarC1_node:main'
+            'RpLidarC1 = RplidarC1.RpLidarC1_node:main'
         ],
     },
 )

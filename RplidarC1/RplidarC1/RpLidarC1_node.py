@@ -6,6 +6,7 @@ sudo apt install -y ros-jazzy-rplidar-ros
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import LaserScan
 
 class LidarForwarder(Node):
@@ -45,7 +46,8 @@ class LidarForwarder(Node):
             self.get_logger().info(f'Forwarded {self.frame_count} scans')
 
     def destroy_node(self):
-        self.get_logger().info(f'Lidar Forwarder stopped. Total scans: {self.frame_count}')
+        if rclpy.ok():
+            self.get_logger().info(f'Lidar Forwarder stopped. Total scans: {self.frame_count}')
         super().destroy_node()
 
 def main(args=None):
@@ -53,11 +55,12 @@ def main(args=None):
     node = LidarForwarder()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
