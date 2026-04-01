@@ -17,6 +17,7 @@ class ArduinoController(Node):
         self.declare_parameter('rate', 10.0)
         self.declare_parameter('read_rate', 20.0)
         self.declare_parameter('enc_topic', 'encoders')
+        self.declare_parameter('gy25_topic', 'gy25')
         self.declare_parameter('reconnect_delay', 2.0)  # задержка перед повторным подключением (сек)
 
         self.port = self.get_parameter('port').get_parameter_value().string_value
@@ -24,6 +25,7 @@ class ArduinoController(Node):
         self.rate = self.get_parameter('rate').get_parameter_value().double_value
         self.read_rate = self.get_parameter('read_rate').get_parameter_value().double_value
         self.enc_topic = self.get_parameter('enc_topic').get_parameter_value().string_value
+        self.gy25_topic = self.get_parameter('gy25_topic').get_parameter_value().string_value
         self.reconnect_delay = self.get_parameter('reconnect_delay').get_parameter_value().double_value
 
         # Переменные для хранения последних полученных значений движения и серв
@@ -40,6 +42,7 @@ class ArduinoController(Node):
 
         # Публикатор для энкодеров (массив из 4 int)
         self.pub_encoders = self.create_publisher(Int32MultiArray, self.enc_topic, 10)
+        self.pub_gy25 = self.create_publisher(Int32, self.gy25_topic, 10)
 
         # Состояние подключения
         self.serial_conn = None
@@ -146,7 +149,12 @@ class ArduinoController(Node):
     def process_line(self, line):
         """Обрабатывает одну строку, полученную от Arduino."""
         if line.startswith('ENC:'):
-            parts = line.replace('ENC:', '', 1).split()
+            gy25_section = None
+            enc_section = line
+            if 'GY25:' in line:
+                enc_section, gy25_section = line.split('GY25:', 1)
+
+            parts = enc_section.replace('ENC:', '', 1).split()
             if len(parts) >= 4:
                 try:
                     encoders = [int(parts[i]) for i in range(4)]
@@ -156,7 +164,26 @@ class ArduinoController(Node):
                     self.get_logger().warn(f'Invalid encoder values: {parts}')
             else:
                 self.get_logger().warn(f'Malformed ENC line: {line}')
+
+            if gy25_section is not None:
+                self.publish_gy25(gy25_section.strip(), line)
+        elif line.startswith('GY25:'):
+            self.publish_gy25(line.replace('GY25:', '', 1).strip(), line)
         # Здесь можно добавить обработку других возможных форматов от Arduino
+
+    def publish_gy25(self, gy25_data, raw_line):
+        """Публикует угол GY25 в отдельный топик."""
+        parts = gy25_data.split()
+        if not parts:
+            self.get_logger().warn(f'Malformed GY25 line: {raw_line}')
+            return
+
+        try:
+            angle = int(parts[0])
+            self.pub_gy25.publish(Int32(data=angle))
+            self.get_logger().debug(f'Published GY25 angle: {angle}')
+        except ValueError:
+            self.get_logger().warn(f'Invalid GY25 angle: {gy25_data}')
 
     def destroy_node(self):
         """Закрывает последовательный порт при завершении узла."""
