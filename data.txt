@@ -6,7 +6,22 @@ source install/setup.bash
 
 colcon build
 
+ros2 run arduinoDriver arduinoDriver --ros-args -p port:=/dev/ttyUSB0
+ros2 run main main
+ros2 run main minimal
+ros2 run main RC
+ros2 run realSenceCam realSenceCam
+
 ros2 run RplidarC1 RplidarC1
+
+================================================================================================================================================
+
+intel realSence
+
+pip3 uninstall pyrealsense2
+sudo usermod -aG video ubuntu
+
+/home/ubuntu/recordings/2026-04-01_14-23-33/video.mp4
 
 ================================================================================================================================================
 

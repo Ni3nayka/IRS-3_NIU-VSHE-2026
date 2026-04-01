@@ -16,7 +16,7 @@ class MotorTestEncoder(Node):
         self.encoders_start = None
         self.gy25_angle = None
         self.target_sum = 0
-        self.encoder_sum_per_cm = 115000.0 / 510.0
+        self.encoder_sum_per_cm = 211 #115000.0 / 510.0
 
     def encoders_callback(self, msg):
         if len(msg.data) < 4:
@@ -168,7 +168,7 @@ class MotorTestEncoder(Node):
             self.get_logger().info(f'Waiting {delay_after} seconds before next action...')
             self.wait(delay_after)
 
-    def rotate(self, angle, max_turn_speed=20, min_turn_speed=5, kp=0.35, angle_tolerance=6, delay_after=1.0):
+    def rotate(self, angle, max_turn_speed=20, min_turn_speed=5, kp=0.35, angle_tolerance=7, delay_after=1.0):
         """Повернуть робот на заданный угол по данным gy25 с P-регулятором."""
         if self.gy25_angle is None:
             self.get_logger().warn('GY25 angle is not initialized yet, waiting...')
@@ -236,12 +236,13 @@ class MotorTestEncoder(Node):
         self.wait_for_encoder_initialization()
         self.get_logger().info('Algorithm: initialization done, starting motors')
 
-        self.forward(160)
-        left(-90)
+        delay(4)
         self.forward(320)
-        self.forward(-160)
-        left(90)
+        left(-180)
         self.forward(80)
+        self.forward(160)
+        self.forward(80)
+        left(180)
 
         self.get_logger().info('Algorithm: finishing node')
         self.destroy_node()
