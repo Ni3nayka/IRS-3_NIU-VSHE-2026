@@ -1,0 +1,62 @@
+
+ENC: 0 0
+Servo finger: 90 - take; 180 - drop
+servo arm: 470 - down; 60 - up
+10000 enc sum = 47 cm
+1 cm = 213 enc sum
+
+================================================================================================================================================
+
+# https://github.com/balena-io/etcher
+lsblk
+sudo dd if=/dev/sda of=~/Загрузки/backup.img bs=4M status=progress
+
+================================================================================================================================================
+
+ssh ubuntu@192.168.3.119
+sudo poweroff
+
+# VS code
+http://192.168.3.119:8080/
+
+git pull
+
+source /opt/ros/jazzy/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+
+# если почему-то пишет что не находит запускаемый объект
+source ~/Документы/GitHub/IRS-1_sber_hack_2026/install/setup.bash
+source /home/ni3nayka/Документы/GitHub/IRS-1_sber_hack_2026/install/setup.bash
+source /home/ubuntu/IRS-1_sber_hack_2026/install/setup.bash
+
+source /opt/ros/jazzy/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+source /home/ubuntu/IRS-1_sber_hack_2026/install/setup.bash
+
+
+colcon build
+source install/setup.bash
+
+ls /dev/tty*
+
+ros2 run arduinoDriver arduinoDriver
+ros2 run arduinoDriver arduinoDriver --ros-args -p port:=/dev/ttyUSB0
+ros2 run gy25 gy25 --ros-args -p port:=/dev/ttyUSB0
+ros2 run arucoStartDetect arucoStartDetect
+ros2 run main main
+
+ros2 topic list
+
+ros2 topic echo /encoder_left
+ros2 topic echo /encoder_right
+
+ros2 topic echo /gy25/roll
+ros2 topic echo /gy25/pitch
+ros2 topic echo /gy25/yaw
+
+================================================================================================================================================
+
+в коде ардуино robot.h - redefenition #define PARROT_IN_ONE_FULL_ROTATION_WHEEL
+12.24 тика энкодера на мм движения (одним колесом)
+
+
