@@ -1,3 +1,14 @@
+================================================================================================================================================
+
+source /opt/ros/jazzy/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bash
+source install/setup.bash
+
+colcon build
+
+ros2 run RplidarC1 RplidarC1
+
+================================================================================================================================================
 
 ENC: 0 0
 Servo finger: 90 - take; 180 - drop
@@ -21,6 +32,19 @@ source install/setup.bash
 
 ================================================================================================================================================
 
+source /opt/ros/jazzy/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bash
+source install/setup.bash
+
+colcon build
+
+ros2 topic list
+ros2 topic echo /scan
+ros2 run RplidarC1 RpLidarC1
+ros2 topic echo /RplidarC1
+
+================================================================================================================================================
+
 pip3 install pynput --break-system-packages
 
 ================================================================================================================================================
@@ -34,6 +58,9 @@ http://192.168.3.119:8080/
 git clone https://github.com/Ni3nayka/IRS-3_NIU-VSHE-2026
 
 git pull
+
+git fetch origin
+git reset --hard origin/main
 
 source /opt/ros/jazzy/setup.bash
 echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
