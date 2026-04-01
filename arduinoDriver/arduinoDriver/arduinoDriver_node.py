@@ -55,6 +55,43 @@ class ArduinoController(Node):
 
         self.get_logger().info('Arduino controller node started')
 
+    def port_matches_keywords(self, port_info, keywords):
+        values = [
+            getattr(port_info, 'device', '') or '',
+            getattr(port_info, 'description', '') or '',
+            getattr(port_info, 'manufacturer', '') or '',
+            getattr(port_info, 'product', '') or '',
+            getattr(port_info, 'hwid', '') or '',
+        ]
+        haystack = ' '.join(values).lower()
+        return any(keyword in haystack for keyword in keywords)
+
+    def score_arduino_port(self, port_info):
+        """Оценивает, насколько порт похож на Arduino, а не на лидар."""
+        score = 0
+
+        arduino_keywords = [
+            'arduino',
+            'ch340',
+            'ch341',
+            'usb2.0-serial',
+            '1a86:7523',
+        ]
+        lidar_keywords = [
+            'silicon labs',
+            'cp210',
+            '10c4:ea60',
+            'rplidar',
+            'slamtec',
+        ]
+
+        if self.port_matches_keywords(port_info, arduino_keywords):
+            score += 10
+        if self.port_matches_keywords(port_info, lidar_keywords):
+            score -= 20
+
+        return score
+
     def connect_serial(self):
         """Устанавливает соединение с Arduino."""
         if self.serial_conn is not None:
@@ -68,13 +105,36 @@ class ArduinoController(Node):
         if not port:
             # Автоматическое определение
             ports = serial.tools.list_ports.comports()
-            self.get_logger().info(f'Found ports: {[p.device for p in ports]}')
-            arduino_ports = [p.device for p in ports if 'Arduino' in p.description or 'usb' in p.device]
-            if not arduino_ports:
+            self.get_logger().info(
+                'Found ports: ' +
+                str([
+                    {
+                        'device': p.device,
+                        'description': p.description,
+                        'manufacturer': getattr(p, 'manufacturer', None),
+                        'product': getattr(p, 'product', None),
+                        'hwid': p.hwid,
+                    }
+                    for p in ports
+                ])
+            )
+
+            scored_ports = sorted(
+                ((self.score_arduino_port(p), p) for p in ports if p.device.startswith('/dev/ttyUSB') or p.device.startswith('/dev/ttyACM')),
+                key=lambda item: item[0],
+                reverse=True,
+            )
+
+            if not scored_ports or scored_ports[0][0] < 0:
                 self.get_logger().error('Arduino not found')
                 return
-            port = arduino_ports[0]
-            self.get_logger().info(f'Using automatically detected port: {port}')
+
+            best_score, best_port = scored_ports[0]
+            port = best_port.device
+            self.get_logger().info(
+                f'Using automatically detected Arduino port: {port} '
+                f'(description={best_port.description}, score={best_score})'
+            )
 
         try:
             self.serial_conn = serial.Serial(port, self.baudrate, timeout=0.1)
