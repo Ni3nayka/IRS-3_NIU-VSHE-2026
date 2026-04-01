@@ -93,9 +93,9 @@ class ArduinoController(Node):
             self.get_logger().debug('Reconnect attempt too soon, skipping')
 
     def cmd_vel_callback(self, msg):
-        self.forward_speed = int(round(msg.linear.x))
-        self.left_speed = int(round(msg.linear.y))
-        self.rotation_speed = int(round(msg.angular.z))
+        self.forward_speed = msg.linear.x
+        self.left_speed = msg.linear.y
+        self.rotation_speed = msg.angular.z
         self.get_logger().info(f'{self.forward_speed} {self.left_speed} {self.rotation_speed}')
 
     def servo_1_callback(self, msg):
