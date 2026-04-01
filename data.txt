@@ -13,11 +13,25 @@ sudo dd if=/dev/sda of=~/Загрузки/backup.img bs=4M status=progress
 
 ================================================================================================================================================
 
+cd /home/ni3nayka/Документы/GitHub/IRS-3_NIU-VSHE-2026/
+source /opt/ros/jazzy/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bash
+colcon build
+source install/setup.bash
+
+================================================================================================================================================
+
+ros2 topic echo /cmd_vel
+
+================================================================================================================================================
+
 ssh ubuntu@192.168.3.119
 sudo poweroff
 
 # VS code
 http://192.168.3.119:8080/
+
+git clone https://github.com/Ni3nayka/IRS-3_NIU-VSHE-2026
 
 git pull
 

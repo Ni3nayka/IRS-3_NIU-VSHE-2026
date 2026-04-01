@@ -25,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'main = main.main_node:main', # НОДА
+            'RC = main.main_RC_node:main',
+            'test = main.main_test_node:main',
         ],
     },
 )

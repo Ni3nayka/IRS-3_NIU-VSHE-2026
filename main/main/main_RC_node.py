@@ -1,158 +1,153 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32
-from concurrent.futures import Future
+from geometry_msgs.msg import Twist
+from pynput import keyboard
+import sys
 
-class MotorTestEncoder(Node):
+class KeyboardTeleop(Node):
     def __init__(self):
-        super().__init__('motor_test_encoder')
-        self.pub_left = self.create_publisher(Int32, 'motor_speed_left', 10)
-        self.pub_right = self.create_publisher(Int32, 'motor_speed_right', 10)
-        self.pub_servo_1 = self.create_publisher(Int32, 'servo_angle_1', 10)
-        self.pub_servo_2 = self.create_publisher(Int32, 'servo_angle_2', 10)
-        self.sub_enc_left = self.create_subscription(Int32, 'encoder_left', self.enc_left_callback, 10)
-        self.sub_enc_right = self.create_subscription(Int32, 'encoder_right', self.enc_right_callback, 10)
+        super().__init__('keyboard_teleop')
+        
+        # Создаем издатель в стандартный топик управления скоростью
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        
+        # Текущее состояние скоростей (по умолчанию 0)
+        self.linear_x = 0.0
+        self.linear_y = 0.0
+        self.angular_z = 0.0
+        
+        # Набор активных клавиш (чтобы поддерживать нажатие нескольких кнопок)
+        self.active_keys = set()
+        
+        # Параметры скоростей согласно заданию
+        self.speed_linear = 0.3
+        self.speed_angular = 0.2
+        
+        # Таймер для периодической отправки команды (10 Гц)
+        # Это надежнее, чем отправка только в момент нажатия
+        self.timer = self.create_timer(0.1, self.timer_callback)
+        
+        # Запускаем слушатель клавиатуры в отдельном потоке
+        self.listener = keyboard.Listener(
+            on_press=self.on_press,
+            on_release=self.on_release
+        )
+        self.listener.start()
+        
+        self.get_logger().info('Teleop node started. Use WASDQE to move, SPACE to stop, ESC to exit.')
 
-        self.enc_left = 0
-        self.enc_right = 0
-        self.enc_left_start = None
-        self.enc_right_start = None
-        self.init_future = Future()
-        self.target_future = Future()
-        self.target_sum = 0
+    def timer_callback(self):
+        """Периодически публикует текущую скорость в топик /cmd_vel"""
+        msg = Twist()
+        msg.linear.x = self.linear_x
+        msg.linear.y = self.linear_y
+        msg.angular.z = self.angular_z
+        self.cmd_pub.publish(msg)
 
-    def enc_left_callback(self, msg):
-        self.enc_left = msg.data
-        if self.enc_left_start is None:
-            self.enc_left_start = msg.data
-            self.get_logger().info(f'Initial left encoder: {self.enc_left_start}')
-            self._check_init()
-        self._check_target()
+    def update_velocity(self):
+        """Пересчитывает скорость на основе набора активных клавиш"""
+        # Сбрасываем скорости перед пересчетом
+        vx = 0.0
+        vy = 0.0
+        vz = 0.0
+        
+        # Обработка оси X (Вперед/Назад)
+        # Если нажаты обе, приоритет не задан, но обычно они взаимоисключающие.
+        # Здесь логика: если есть 'w' и нет 's' -> вперед. Если 's' и нет 'w' -> назад.
+        if 'w' in self.active_keys and 's' not in self.active_keys:
+            vx = self.speed_linear
+        elif 's' in self.active_keys and 'w' not in self.active_keys:
+            vx = -self.speed_linear
+        # Если нажаты обе одновременно или ни одной -> 0 (безопасное поведение)
 
-    def enc_right_callback(self, msg):
-        self.enc_right = msg.data
-        if self.enc_right_start is None:
-            self.enc_right_start = msg.data
-            self.get_logger().info(f'Initial right encoder: {self.enc_right_start}')
-            self._check_init()
-        self._check_target()
+        # Обработка оси Y (Стрейф влево/вправо)
+        if 'q' in self.active_keys and 'e' not in self.active_keys:
+            vy = -self.speed_linear # q - влево (отрицательный Y в базе робота обычно)
+        elif 'e' in self.active_keys and 'q' not in self.active_keys:
+            vy = self.speed_linear  # e - вправо
 
-    def _check_init(self):
-        if (self.enc_left_start is not None and self.enc_right_start is not None and
-                not self.init_future.done()):
-            self.init_future.set_result(True)
+        # Обработка оси Z (Поворот)
+        if 'a' in self.active_keys and 'd' not in self.active_keys:
+            vz = -self.speed_angular # a - влево
+        elif 'd' in self.active_keys and 'a' not in self.active_keys:
+            vz = self.speed_angular  # d - вправо
 
-    def _check_target(self):
-        if (self.enc_left_start is None or self.enc_right_start is None or
-                self.target_future.done()):
+        # Применяем новые значения
+        self.linear_x = vx
+        self.linear_y = vy
+        self.angular_z = vz
+
+    def on_press(self, key):
+        """Обработчик нажатия клавиши"""
+        try:
+            # Получаем символ клавиши
+            k = key.char.lower()
+        except AttributeError:
+            # Для специальных клавиш (пробел, esc)
+            if key == keyboard.Key.space:
+                self.emergency_stop()
+                return
+            elif key == keyboard.Key.esc:
+                self.get_logger().info('Exit requested via ESC')
+                self.listener.stop()
+                rclpy.shutdown()
+                return
+            else:
+                return
+
+        # Добавляем клавишу в активные и пересчитываем скорость
+        if k in ['w', 's', 'a', 'd', 'q', 'e']:
+            self.active_keys.add(k)
+            self.update_velocity()
+            self.get_logger().debug(f'Key pressed: {k}, Active: {self.active_keys}')
+
+    def on_release(self, key):
+        """Обработчик отжатия клавиши"""
+        try:
+            k = key.char.lower()
+        except AttributeError:
             return
-        traveled_left = abs(self.enc_left - self.enc_left_start)
-        traveled_right = abs(self.enc_right - self.enc_right_start)
-        total = traveled_left + traveled_right
-        self.get_logger().info(f'Traveled: left={traveled_left}, right={traveled_right}, total={total}')
-        if total >= self.target_sum:
-            self.target_future.set_result(True)
 
-    def start_motors(self, left_speed, right_speed):
-        self.pub_left.publish(Int32(data=left_speed))
-        self.pub_right.publish(Int32(data=right_speed))
-        self.get_logger().info(f'Motors started: left={left_speed}, right={right_speed}')
+        # Удаляем клавишу из активных и пересчитываем скорость
+        # Это реализует требование: "кнопка отжата -- скорость 0"
+        if k in self.active_keys:
+            self.active_keys.remove(k)
+            self.update_velocity()
+            self.get_logger().debug(f'Key released: {k}, Active: {self.active_keys}')
 
-    def stop_motors(self):
-        self.pub_left.publish(Int32(data=0))
-        self.pub_right.publish(Int32(data=0))
-        self.get_logger().info('Motors stopped')
+    def emergency_stop(self):
+        """Экстренная остановка по пробелу"""
+        self.active_keys.clear()
+        self.linear_x = 0.0
+        self.linear_y = 0.0
+        self.angular_z = 0.0
+        self.get_logger().warn('EMERGENCY STOP!')
 
-    def wait(self, duration):
-        """Ждать duration секунд, обрабатывая входящие сообщения ROS2."""
-        future = Future()
-        timer = self.create_timer(duration, lambda: future.set_result(True))
-        rclpy.spin_until_future_complete(self, future)
-        timer.cancel()
-        self.get_logger().debug(f'Wait of {duration}s finished')
-
-    def move(self, left_speed, right_speed, enc_delta, delay_after=1.0):
-        """Выполнить движение на заданное расстояние (в импульсах энкодеров)."""
-        # Сначала создаём новый future, чтобы избежать состояния гонки
-        self.target_future = Future()
-        # Запоминаем текущие значения энкодеров как стартовые для этого движения
-        self.enc_left_start = self.enc_left
-        self.enc_right_start = self.enc_right
-        self.target_sum = enc_delta
-
-        self.get_logger().info('Robot move - start')
-        self.start_motors(left_speed, right_speed)
-        rclpy.spin_until_future_complete(self, self.target_future)
-        self.get_logger().info('Robot move - end')
-        self.stop_motors()
-
-        if delay_after > 0:
-            self.get_logger().info(f'Waiting {delay_after} seconds before next action...')
-            self.wait(delay_after)
-
-    def algorithm(self):
-        """Основной алгоритм: последовательные шаги с ожиданием."""
-        self.get_logger().info('Algorithm: waiting for encoder initialization...')
-        rclpy.spin_until_future_complete(self, self.init_future)
-        self.get_logger().info('Algorithm: initialization done, starting motors')
-
-        # START
-        self.pub_servo_1.publish(Int32(data=80))
-        self.pub_servo_2.publish(Int32(data=180))
-        self.wait(15.0)
-        self.pub_servo_1.publish(Int32(data=470))
-        self.wait(2.0)
-        self.pub_servo_2.publish(Int32(data=180))
-
-        # MAIN
-        self.move(20, 20, 100, delay_after=2.0)
-        self.move(20, -20, 1150, delay_after=2.0)
-        self.move(20, 20, 1100, delay_after=2.0)
-        self.move(-20, 20, 1150, delay_after=2.0)
-        self.move(-20, -20, 8000, delay_after=2.0)
-        self.move(20, 20, 13000, delay_after=2.0)
-        # self.move(20, 20, 1000, delay_after=2.0)
-        # self.move(20, -20, 1000, delay_after=2.0)
-        self.start_motors(10, 10)
-        
-        for i in range (180,90,-10):
-            self.pub_servo_2.publish(Int32(data=i))
-            self.wait(0.2)
-        self.pub_servo_2.publish(Int32(data=86))
-        self.wait(1.0)
-        
-        self.start_motors(0, 0)
-        self.pub_servo_1.publish(Int32(data=300))
-        self.wait(2.0)
-        self.move(-20, -20, 21000, delay_after=2.0)
-        self.move(20, 20, 100, delay_after=2.0)
-        self.move(20, -20, 1450, delay_after=2.0)
-        self.move(20, 20, 6000, delay_after=2.0)
-        for i in range (90,180,10):
-            self.pub_servo_2.publish(Int32(data=i))
-            self.wait(0.2)
-        self.pub_servo_1.publish(Int32(data=470))
-        self.wait(2.0)
-        self.pub_servo_2.publish(Int32(data=180))
-        self.wait(2.0)
-        self.move(-20, -20, 3000, delay_after=2.0)
-        
-        # END
-        self.wait(2.0)
-        self.pub_servo_1.publish(Int32(data=470))
-        self.pub_servo_2.publish(Int32(data=180))
-
-        self.get_logger().info('Algorithm: finishing node')
-        self.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-
+    def destroy_node(self):
+        """Гарантированная остановка при закрытии ноды"""
+        self.emergency_stop()
+        # Отправляем команду остановки несколько раз, чтобы убедиться, что она дошла
+        for _ in range(3):
+            self.cmd_pub.publish(Twist())
+            rclpy.spin_once(self, timeout_sec=0.1)
+        super().destroy_node()
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MotorTestEncoder()
-    node.algorithm()
+    node = KeyboardTeleop()
+    
+    try:
+        # Запускаем цикл обработки событий ROS 2
+        # Слушатель клавиатуры работает в фоновом потоке
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Очистка ресурсов
+        node.listener.stop()
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

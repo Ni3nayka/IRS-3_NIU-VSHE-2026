@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32
+from std_msgs.msg import Int32, Int32MultiArray
+from geometry_msgs.msg import Twist
 import serial
 import serial.tools.list_ports
 import time
-import re
 
 class ArduinoController(Node):
     def __init__(self):
@@ -16,33 +16,30 @@ class ArduinoController(Node):
         self.declare_parameter('baudrate', 9600)
         self.declare_parameter('rate', 10.0)
         self.declare_parameter('read_rate', 20.0)
-        self.declare_parameter('enc_topic_left', 'encoder_left')
-        self.declare_parameter('enc_topic_right', 'encoder_right')
+        self.declare_parameter('enc_topic', 'encoders')
         self.declare_parameter('reconnect_delay', 2.0)  # задержка перед повторным подключением (сек)
 
         self.port = self.get_parameter('port').get_parameter_value().string_value
         self.baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         self.rate = self.get_parameter('rate').get_parameter_value().double_value
         self.read_rate = self.get_parameter('read_rate').get_parameter_value().double_value
-        self.enc_topic_left = self.get_parameter('enc_topic_left').get_parameter_value().string_value
-        self.enc_topic_right = self.get_parameter('enc_topic_right').get_parameter_value().string_value
+        self.enc_topic = self.get_parameter('enc_topic').get_parameter_value().string_value
         self.reconnect_delay = self.get_parameter('reconnect_delay').get_parameter_value().double_value
 
-        # Переменные для хранения последних полученных значений моторов и серв
-        self.speed_left = 0
-        self.speed_right = 0
+        # Переменные для хранения последних полученных значений движения и серв
+        self.forward_speed = 0
+        self.left_speed = 0
+        self.rotation_speed = 0
         self.servo_angle_1 = 470
         self.servo_angle_2 = 180
 
         # Подписки
-        self.sub_speed_left = self.create_subscription(Int32, 'motor_speed_left', self.speed_left_callback, 10)
-        self.sub_speed_right = self.create_subscription(Int32, 'motor_speed_right', self.speed_right_callback, 10)
+        self.sub_cmd_vel = self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.sub_servo1 = self.create_subscription(Int32, 'servo_angle_1', self.servo_1_callback, 10)
         self.sub_servo2 = self.create_subscription(Int32, 'servo_angle_2', self.servo_2_callback, 10)
 
-        # Публикаторы для энкодеров
-        self.pub_enc_left = self.create_publisher(Int32, self.enc_topic_left, 10)
-        self.pub_enc_right = self.create_publisher(Int32, self.enc_topic_right, 10)
+        # Публикатор для энкодеров (массив из 4 int)
+        self.pub_encoders = self.create_publisher(Int32MultiArray, self.enc_topic, 10)
 
         # Состояние подключения
         self.serial_conn = None
@@ -95,11 +92,11 @@ class ArduinoController(Node):
         else:
             self.get_logger().debug('Reconnect attempt too soon, skipping')
 
-    def speed_left_callback(self, msg):
-        self.speed_left = msg.data
-
-    def speed_right_callback(self, msg):
-        self.speed_right = msg.data
+    def cmd_vel_callback(self, msg):
+        self.forward_speed = int(round(msg.linear.x))
+        self.left_speed = int(round(msg.linear.y))
+        self.rotation_speed = int(round(msg.angular.z))
+        self.get_logger().info(f'{self.forward_speed} {self.left_speed} {self.rotation_speed}')
 
     def servo_1_callback(self, msg):
         self.servo_angle_1 = msg.data
@@ -112,12 +109,13 @@ class ArduinoController(Node):
         if self.serial_conn is None or not self.serial_conn.is_open:
             return
 
-        motor_cmd = f"N {self.speed_left} {self.speed_right}\n"
-        servo_cmd = f"A {self.servo_angle_1} {self.servo_angle_2}\n"
+        motor_cmd = f"v {int(self.forward_speed*100)} {int(self.left_speed*100)} {int(self.rotation_speed*100)}\n"
+        # servo_cmd = f"A {self.servo_angle_1} {self.servo_angle_2}\n"
 
         try:
             self.serial_conn.write(motor_cmd.encode())
-            self.serial_conn.write(servo_cmd.encode())
+            self.get_logger().info(motor_cmd)
+            # self.serial_conn.write(servo_cmd.encode())
         except Exception as e:
             self.get_logger().error(f'Serial write error: {e}')
             self.reconnect_serial()
@@ -148,16 +146,14 @@ class ArduinoController(Node):
     def process_line(self, line):
         """Обрабатывает одну строку, полученную от Arduino."""
         if line.startswith('ENC:'):
-            parts = line.split()
-            if len(parts) == 3:
+            parts = line.replace('ENC:', '', 1).split()
+            if len(parts) >= 4:
                 try:
-                    enc_left = int(parts[1])
-                    enc_right = int(parts[2])
-                    self.pub_enc_left.publish(Int32(data=enc_left))
-                    self.pub_enc_right.publish(Int32(data=enc_right))
-                    self.get_logger().debug(f'Published encoders: {enc_left}, {enc_right}')
+                    encoders = [int(parts[i]) for i in range(4)]
+                    self.pub_encoders.publish(Int32MultiArray(data=encoders))
+                    self.get_logger().debug(f'Published encoders: {encoders}')
                 except ValueError:
-                    self.get_logger().warn(f'Invalid encoder values: {parts[1:]}')
+                    self.get_logger().warn(f'Invalid encoder values: {parts}')
             else:
                 self.get_logger().warn(f'Malformed ENC line: {line}')
         # Здесь можно добавить обработку других возможных форматов от Arduino
