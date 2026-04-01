@@ -74,4 +74,27 @@ ros2 topic echo /gy25/yaw
 в коде ардуино robot.h - redefenition #define PARROT_IN_ONE_FULL_ROTATION_WHEEL
 12.24 тика энкодера на мм движения (одним колесом)
 
+================================================================================================================================================
 
+ros2 pkg create --build-type ament_python my_turtle_controller
+chmod +x my_turtle_controller/turtle_node.py
+# add main_file - my_turtle_controller/my_turtle_controller_node.py
+# add to package.xml:
+  <license>TODO: License declaration</license> # было в коде
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <test_depend>ament_copyright</test_depend> # было в коде
+# setup.py:
+    # extras_require={ # МУСОР
+    #     'test': [
+    #         'pytest',
+    #     ],
+    # },
+    entry_points={
+        'console_scripts': [
+            'arduinoDriver = arduinoDriver.arduinoDriver_node:main', # НОДА
+            # 'arduinoDriver = arduinoDriver.arduinoDriver_node1:main', # НОДА1, чтобы запускать несколько
+        ],
+    },
