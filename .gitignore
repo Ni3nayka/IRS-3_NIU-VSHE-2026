@@ -3,3 +3,5 @@
 /build
 /main/main/__pycache__
 /arduinoDriver/arduinoDriver/__pycache__
+/realSenceCam/realSenceCam/__pycache__
+/RplidarC1/RplidarC1/__pycache__
