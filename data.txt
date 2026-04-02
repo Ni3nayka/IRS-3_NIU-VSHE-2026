@@ -9,10 +9,16 @@ colcon build
 ros2 run arduinoDriver arduinoDriver --ros-args -p port:=/dev/ttyUSB0
 ros2 run main main
 ros2 run main minimal
+ros2 run main minimal --ros-args -p target_way:=ffrfrfsf
+ros2 run main minimal_2 --ros-args -p target_way:=ffrfsflfsrrflffrf
 ros2 run main RC
 ros2 run realSenceCam realSenceCam
 
+ros2 run main minimal --ros-args -p target_way:=fflfflfsrrfffrfsfrfffs
+
 ros2 run RplidarC1 RpLidarC1
+ros2 run lidarAnalyzer lidarAnalyzer
+
 
 ================================================================================================================================================
 
