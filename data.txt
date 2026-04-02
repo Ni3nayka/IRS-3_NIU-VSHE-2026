@@ -6,6 +6,10 @@ source install/setup.bash
 
 colcon build
 
+ros2 run realSenceCam realSenceCam_road --ros-args -p model_path:=/home/ubuntu/IRS-3_NIU-VSHE-2026/realSenceCam/realSenceCam/best.pt
+ros2 run arduinoDriver arduinoDriver --ros-args -p port:=/dev/ttyUSB0
+ros2 run main minimal --ros-args -p target_way:=ffrfffsssfrffrfff
+
 ros2 run arduinoDriver arduinoDriver --ros-args -p port:=/dev/ttyUSB0
 ros2 run main main
 ros2 run main minimal
