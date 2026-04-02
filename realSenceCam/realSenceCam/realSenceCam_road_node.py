@@ -279,6 +279,7 @@ class RGBRecorderDirect(Node):
                 cls_id = int(box.cls[0]) if hasattr(box, 'cls') and box.cls is not None else -1
                 conf = float(box.conf[0]) if hasattr(box, 'conf') and box.conf is not None else 0.0
                 label = names.get(cls_id, str(cls_id))
+                label = self._fix_direction_label(label)
                 x1, y1, x2, y2 = [int(v) for v in xyxy]
                 detected_items.append(f'{label}:{x1},{y1},{x2},{y2}')
                 self.get_logger().info(
@@ -289,6 +290,20 @@ class RGBRecorderDirect(Node):
 
         self._publish_cam_data(detected_items)
         self._maybe_log_route_message()
+
+    def _fix_direction_label(self, label):
+        # Костыль: модель перепутала лево/право
+        swap = {
+            'left': 'right',
+            'right': 'left',
+            'Left': 'Right',
+            'Right': 'Left',
+            'влево': 'вправо',
+            'вправо': 'влево',
+            'Влево': 'Вправо',
+            'Вправо': 'Влево',
+        }
+        return swap.get(label, label)
 
     def _publish_cam_data(self, items):
         now = time.monotonic()
