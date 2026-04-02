@@ -12,12 +12,14 @@ class MotorTestEncoder(Node):
         self.sub_encoders = self.create_subscription(Int32MultiArray, 'encoders', self.encoders_callback, 10)
         self.sub_gy25 = self.create_subscription(Int32, 'gy25', self.gy25_callback, 10)
 
+        self.declare_parameter('target_way', 'fflfrfsf')
+
         self.encoders = None
         self.encoders_start = None
         self.gy25_angle = None
         self.target_sum = 0
         self.encoder_sum_per_cm = 211 #115000.0 / 510.0
-        self.target_way = "ffrfflfsrrf"
+        self.target_way = self.get_parameter('target_way').get_parameter_value().string_value
 
     def encoders_callback(self, msg):
         if len(msg.data) < 4:
