@@ -286,16 +286,17 @@ class MotorTestEncoder(Node):
             if sign in stop_targets:
                 stop_hits += 1
                 self.get_logger().info(f'Stop sign detected ({stop_hits}/2): {sign}')
-            elif sign in ('left', 'влево'):
-                left(90)
-            elif sign in ('right', 'вправо'):
-                left(-90)
             elif sign is None or sign == '':
                 self.get_logger().warn('No sign detected, going forward')
                 self.forward(80)
             else:
-                self.get_logger().warn(f'Unknown sign "{sign}", going forward')
-                self.forward(80)
+                if sign not in {'NOT LEFT'}:
+                    left(90)
+                elif sign not in {'NOT RIGHT'}:
+                    left(-90)
+                else:
+                    self.get_logger().warn(f'Movement forbidden by sign "{sign}", going forward')
+                    self.forward(80)
 
             # Между итерациями читаем камеру
             self.pulse_camera_run_and_wait(2.0, wait_after=0.5)
