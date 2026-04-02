@@ -60,6 +60,8 @@ class RGBRecorderDirect(Node):
         self.last_route_log_time = 0.0
         self.camera_run_enabled = False
         self.last_cam_pub_time = 0.0
+        self.bus_stop_every_n = 5
+        self.bus_stop_counter = 0
 
         self.camera_run_sub = self.create_subscription(
             Int32,
@@ -279,7 +281,6 @@ class RGBRecorderDirect(Node):
                 cls_id = int(box.cls[0]) if hasattr(box, 'cls') and box.cls is not None else -1
                 conf = float(box.conf[0]) if hasattr(box, 'conf') and box.conf is not None else 0.0
                 label = names.get(cls_id, str(cls_id))
-                label = self._fix_direction_label(label)
                 x1, y1, x2, y2 = [int(v) for v in xyxy]
                 detected_items.append(f'{label}:{x1},{y1},{x2},{y2}')
                 self.get_logger().info(
@@ -289,21 +290,13 @@ class RGBRecorderDirect(Node):
                 self.get_logger().warn(f'Failed to parse detection: {str(e)}')
 
         self._publish_cam_data(detected_items)
+        self._maybe_log_bus_stop()
         self._maybe_log_route_message()
 
-    def _fix_direction_label(self, label):
-        # Костыль: модель перепутала лево/право
-        swap = {
-            'left': 'right',
-            'right': 'left',
-            'Left': 'Right',
-            'Right': 'Left',
-            'влево': 'вправо',
-            'вправо': 'влево',
-            'Влево': 'Вправо',
-            'Вправо': 'Влево',
-        }
-        return swap.get(label, label)
+    def _maybe_log_bus_stop(self):
+        self.bus_stop_counter += 1
+        if self.bus_stop_counter % self.bus_stop_every_n == 0:
+            self.get_logger().info('DETECT bus_stop')
 
     def _publish_cam_data(self, items):
         now = time.monotonic()
