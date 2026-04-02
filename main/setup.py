@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'main = main.main_node:main', # НОДА
             'minimal = main.main_minimal_node:main',
+            'minimal_2 = main.main_minimal_2_node:main',
             'RC = main.main_RC_node:main',
             'RC_X = main.main_RC_X_node:main',
             'test = main.main_test_node:main',
