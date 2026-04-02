@@ -24,8 +24,8 @@ setup(
     # },
     entry_points={
         'console_scripts': [
-            'realSenceCam = realSenceCam.realSenceCam_node:main'
-            'realSenceCam = realSenceCam.realSenceCam_road_node:main'
+            'realSenceCam = realSenceCam.realSenceCam_node:main',
+            'realSenceCam_road = realSenceCam.realSenceCam_road_node:main',
         ],
     },
 )

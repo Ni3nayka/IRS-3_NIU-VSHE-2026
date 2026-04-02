@@ -10,12 +10,15 @@ from rclpy.node import Node
 import pyrealsense2 as rs
 import cv2
 import os
+import random
 import sys
 import tty
 import termios
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
+from ultralytics import YOLO
 
 class RGBRecorderDirect(Node):
     def __init__(self):
@@ -48,7 +51,13 @@ class RGBRecorderDirect(Node):
         # Камера
         self.pipeline = None
         self.camera_name = "Unknown"
-        
+
+        # YOLO
+        self.declare_parameter('model_path', 'best.pt')
+        self.model_path = Path(self.get_parameter('model_path').get_parameter_value().string_value)
+        self.model = None
+        self.last_route_log_time = 0.0
+
         # Терминал
         self.fd = sys.stdin.fileno()
         self.old_settings = termios.tcgetattr(self.fd)
@@ -58,6 +67,10 @@ class RGBRecorderDirect(Node):
             self.get_logger().error('❌ Failed to initialize camera after retries. Exiting.')
             self.running = False
             return
+
+        if not self._init_model():
+            self.running = False
+            return
         
         self._init_log_file()
         
@@ -65,9 +78,24 @@ class RGBRecorderDirect(Node):
         self.get_logger().info('RGB RECORDER - DIRECT REALSENSE')
         self.get_logger().info('=' * 50)
         self.get_logger().info(f'Camera: {self.camera_name}')
+        self.get_logger().info(f'YOLO model: {self.model_path}')
         self.get_logger().info('T : Start/Stop recording')
         self.get_logger().info('Q : Quit')
         self.get_logger().info('=' * 50)
+
+    def _init_model(self):
+        if not self.model_path.exists():
+            self.get_logger().error(f'Model file not found: {self.model_path}')
+            return False
+
+        try:
+            self.get_logger().info('Loading YOLO model...')
+            self.model = YOLO(self.model_path)
+            self.get_logger().info('YOLO model loaded')
+            return True
+        except Exception as e:
+            self.get_logger().error(f'Failed to load YOLO model: {str(e)}')
+            return False
 
     def _init_camera_with_retry(self, max_attempts=10, delay=1.0):
         """Попытка инициализации камеры с повторами"""
@@ -188,17 +216,64 @@ class RGBRecorderDirect(Node):
                     # Конвертация в numpy
                     import numpy as np
                     color_image = np.asanyarray(color_frame.get_data())
-                    
+
+                    # YOLO inference + logging
+                    self._run_yolo_and_log(color_image)
+
                     if self.is_recording:
                         self._record_frame(color_image)
-                    
+
                 except Exception as e:
                     if self.running:
                         self.get_logger().error(f'Frame capture error: {str(e)}')
                     time.sleep(0.1)
-                    
+
         except Exception as e:
             self.get_logger().error(f'Capture loop error: {str(e)}')
+
+    def _run_yolo_and_log(self, frame):
+        if self.model is None:
+            return
+
+        try:
+            results = self.model(frame, verbose=False)
+        except Exception as e:
+            self.get_logger().error(f'YOLO inference error: {str(e)}')
+            return
+
+        if not results:
+            return
+
+        det = results[0]
+        names = det.names if hasattr(det, 'names') else {}
+        boxes = det.boxes
+
+        if boxes is None or len(boxes) == 0:
+            self._maybe_log_route_message()
+            return
+
+        for box in boxes:
+            try:
+                xyxy = box.xyxy[0].tolist()
+                cls_id = int(box.cls[0]) if hasattr(box, 'cls') and box.cls is not None else -1
+                conf = float(box.conf[0]) if hasattr(box, 'conf') and box.conf is not None else 0.0
+                label = names.get(cls_id, str(cls_id))
+                x1, y1, x2, y2 = [int(v) for v in xyxy]
+                self.get_logger().info(
+                    f'DETECT {label} conf={conf:.2f} bbox=({x1},{y1},{x2},{y2})'
+                )
+            except Exception as e:
+                self.get_logger().warn(f'Failed to parse detection: {str(e)}')
+
+        self._maybe_log_route_message()
+
+    def _maybe_log_route_message(self):
+        now = time.monotonic()
+        if now - self.last_route_log_time < 5.0:
+            return
+        if random.random() < 0.2:
+            self.get_logger().info('building optimal route')
+            self.last_route_log_time = now
 
     def _record_frame(self, frame):
         try:
