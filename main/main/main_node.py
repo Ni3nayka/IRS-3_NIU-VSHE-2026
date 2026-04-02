@@ -2,21 +2,28 @@
 import time
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32, Int32MultiArray
+from std_msgs.msg import Int32, Int32MultiArray, String
 from geometry_msgs.msg import Twist
 
 class MotorTestEncoder(Node):
     def __init__(self):
         super().__init__('motor_test_encoder')
         self.pub_cmd_vel = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.pub_camera_run = self.create_publisher(Int32, 'camera_run', 10)
         self.sub_encoders = self.create_subscription(Int32MultiArray, 'encoders', self.encoders_callback, 10)
         self.sub_gy25 = self.create_subscription(Int32, 'gy25', self.gy25_callback, 10)
+        self.sub_cam_data = self.create_subscription(String, 'cam_date', self.cam_data_callback, 10)
+
+        self.declare_parameter('target_way', 'fflfrfsf')
 
         self.encoders = None
         self.encoders_start = None
         self.gy25_angle = None
         self.target_sum = 0
-        self.encoder_sum_per_cm = 115000.0 / 510.0
+        self.encoder_sum_per_cm = 211 #115000.0 / 510.0
+        self.target_way = self.get_parameter('target_way').get_parameter_value().string_value
+        self.last_cam_data = ''
+        self.last_cam_time = 0.0
 
     def encoders_callback(self, msg):
         if len(msg.data) < 4:
@@ -30,6 +37,25 @@ class MotorTestEncoder(Node):
 
     def gy25_callback(self, msg):
         self.gy25_angle = msg.data
+
+    def cam_data_callback(self, msg):
+        self.last_cam_data = msg.data
+        self.last_cam_time = time.monotonic()
+
+    def pulse_camera_run_and_wait(self, duration=2.0, wait_after=0.0):
+        self.pub_camera_run.publish(Int32(data=1))
+        self.wait(duration)
+        self.pub_camera_run.publish(Int32(data=0))
+        if wait_after > 0:
+            self.wait(wait_after)
+
+    def _extract_sign_from_cam_data(self):
+        # cam_date format: "label:x1,y1,x2,y2;label2:..."
+        if not self.last_cam_data:
+            return None
+        first_item = self.last_cam_data.split(';', 1)[0]
+        label = first_item.split(':', 1)[0].strip()
+        return label or None
 
     def _check_target(self):
         if self.encoders_start is None or self.encoders is None:
@@ -75,6 +101,11 @@ class MotorTestEncoder(Node):
         while rclpy.ok() and time.monotonic() < end_time:
             rclpy.spin_once(self, timeout_sec=0.1)
         self.get_logger().debug(f'Wait of {duration}s finished')
+
+    def pulse_camera_run(self, duration=2.0):
+        self.pub_camera_run.publish(Int32(data=1))
+        self.wait(duration)
+        self.pub_camera_run.publish(Int32(data=0))
 
     def wait_for_encoder_initialization(self):
         """Ожидать первое сообщение encoders, продолжая крутить ROS callbacks."""
@@ -168,7 +199,7 @@ class MotorTestEncoder(Node):
             self.get_logger().info(f'Waiting {delay_after} seconds before next action...')
             self.wait(delay_after)
 
-    def rotate(self, angle, max_turn_speed=20, min_turn_speed=5, kp=0.35, angle_tolerance=6, delay_after=1.0):
+    def rotate(self, angle, max_turn_speed=20, min_turn_speed=5, kp=0.35, angle_tolerance=7, delay_after=1.0):
         """Повернуть робот на заданный угол по данным gy25 с P-регулятором."""
         if self.gy25_angle is None:
             self.get_logger().warn('GY25 angle is not initialized yet, waiting...')
@@ -231,17 +262,55 @@ class MotorTestEncoder(Node):
         def delay(time_sec):
             self.wait(time_sec)
 
-        """Основной алгоритм: последовательные шаги с ожиданием."""
+        """Примерный алгоритм движения по дороге (концепт)."""
         self.get_logger().info('Algorithm: waiting for encoder initialization...')
         self.wait_for_encoder_initialization()
         self.get_logger().info('Algorithm: initialization done, starting motors')
 
-        self.forward(160)
-        left(-90)
-        self.forward(320)
-        self.forward(-160)
-        left(90)
+        # 1) По умолчанию двигаемся вперед два раза
         self.forward(80)
+        self.pulse_camera_run_and_wait(2.0, wait_after=0.5)
+        self.forward(80)
+        self.pulse_camera_run_and_wait(2.0, wait_after=0.5)
+
+        # 2) Читаем знак от камеры и принимаем решение о повороте
+        stop_targets = {'bus_stop', 'parking', 'парковка', 'остановка'}
+        stop_hits = 0
+        max_wait_seconds = 120.0
+        start_wait = time.monotonic()
+
+        while rclpy.ok() and stop_hits < 2:
+            sign = self._extract_sign_from_cam_data()
+            self.get_logger().info(f'Camera sign: {sign}')
+
+            if sign in stop_targets:
+                stop_hits += 1
+                self.get_logger().info(f'Stop sign detected ({stop_hits}/2): {sign}')
+            elif sign in ('left', 'влево'):
+                left(90)
+            elif sign in ('right', 'вправо'):
+                left(-90)
+            elif sign is None or sign == '':
+                self.get_logger().warn('No sign detected, going forward')
+                self.forward(80)
+            else:
+                self.get_logger().warn(f'Unknown sign "{sign}", going forward')
+                self.forward(80)
+
+            # Между итерациями читаем камеру
+            self.pulse_camera_run_and_wait(2.0, wait_after=0.5)
+
+            if time.monotonic() - start_wait > max_wait_seconds:
+                self.get_logger().warn('Stop signs not found in time, exiting loop')
+                break
+
+        # delay(4)
+        # self.forward(320)
+        # left(-180)
+        # self.forward(80)
+        # self.forward(160)
+        # self.forward(80)
+        # left(180)
 
         self.get_logger().info('Algorithm: finishing node')
         self.destroy_node()
