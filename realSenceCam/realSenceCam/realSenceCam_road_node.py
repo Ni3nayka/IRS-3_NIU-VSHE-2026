@@ -60,8 +60,7 @@ class RGBRecorderDirect(Node):
         self.last_route_log_time = 0.0
         self.camera_run_enabled = False
         self.last_cam_pub_time = 0.0
-        self.bus_stop_every_n = 5
-        self.bus_stop_counter = 0
+        self.last_bus_stop_log_time = 0.0
 
         self.camera_run_sub = self.create_subscription(
             Int32,
@@ -294,9 +293,12 @@ class RGBRecorderDirect(Node):
         self._maybe_log_route_message()
 
     def _maybe_log_bus_stop(self):
-        self.bus_stop_counter += 1
-        if self.bus_stop_counter % self.bus_stop_every_n == 0:
+        if not self.camera_run_enabled:
+            return
+        now = time.monotonic()
+        if now - self.last_bus_stop_log_time >= 20.0:
             self.get_logger().info('DETECT bus_stop')
+            self.last_bus_stop_log_time = now
 
     def _publish_cam_data(self, items):
         now = time.monotonic()
