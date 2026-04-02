@@ -9,6 +9,7 @@ class MotorTestEncoder(Node):
     def __init__(self):
         super().__init__('motor_test_encoder')
         self.pub_cmd_vel = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.pub_camera_run = self.create_publisher(Int32, 'camera_run', 10)
         self.sub_encoders = self.create_subscription(Int32MultiArray, 'encoders', self.encoders_callback, 10)
         self.sub_gy25 = self.create_subscription(Int32, 'gy25', self.gy25_callback, 10)
 
@@ -78,6 +79,11 @@ class MotorTestEncoder(Node):
         while rclpy.ok() and time.monotonic() < end_time:
             rclpy.spin_once(self, timeout_sec=0.1)
         self.get_logger().debug(f'Wait of {duration}s finished')
+
+    def pulse_camera_run(self, duration=2.0):
+        self.pub_camera_run.publish(Int32(data=1))
+        self.wait(duration)
+        self.pub_camera_run.publish(Int32(data=0))
 
     def wait_for_encoder_initialization(self):
         """Ожидать первое сообщение encoders, продолжая крутить ROS callbacks."""
@@ -250,6 +256,8 @@ class MotorTestEncoder(Node):
                 delay(3)
             else:
                 self.get_logger().warn(f'Unknown step in target_way: {step}')
+
+            self.pulse_camera_run(2.0)
 
         # delay(4)
         # self.forward(320)

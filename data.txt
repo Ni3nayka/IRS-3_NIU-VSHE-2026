@@ -14,6 +14,7 @@ ros2 run main minimal_2 --ros-args -p target_way:=ffrfsflfsrrflffrf
 ros2 run main RC
 ros2 run realSenceCam realSenceCam
 
+ros2 run realSenceCam realSenceCam_road --ros-args -p model_path:=/home/ubuntu/IRS-3_NIU-VSHE-2026/realSenceCam/realSenceCam/best.pt
 ros2 run main minimal --ros-args -p target_way:=fflfflfsrrfffrfsfrfffs
 
 ros2 run RplidarC1 RpLidarC1
@@ -24,7 +25,9 @@ ros2 run lidarAnalyzer lidarAnalyzer
 
 intel realSence
 
-pip3 uninstall pyrealsense2
+pip3 install pyrealsense2
+python3 -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --break-system-packages
+pip3 install ultralytics --break-system-packages
 sudo usermod -aG video ubuntu
 
 /home/ubuntu/recordings/2026-04-01_14-23-33/video.mp4

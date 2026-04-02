@@ -19,6 +19,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from ultralytics import YOLO
+from std_msgs.msg import Int32, String
 
 class RGBRecorderDirect(Node):
     def __init__(self):
@@ -57,6 +58,16 @@ class RGBRecorderDirect(Node):
         self.model_path = Path(self.get_parameter('model_path').get_parameter_value().string_value)
         self.model = None
         self.last_route_log_time = 0.0
+        self.camera_run_enabled = False
+        self.last_cam_pub_time = 0.0
+
+        self.camera_run_sub = self.create_subscription(
+            Int32,
+            'camera_run',
+            self.camera_run_callback,
+            10,
+        )
+        self.cam_data_pub = self.create_publisher(String, 'cam_date', 10)
 
         # Терминал
         self.fd = sys.stdin.fileno()
@@ -79,9 +90,14 @@ class RGBRecorderDirect(Node):
         self.get_logger().info('=' * 50)
         self.get_logger().info(f'Camera: {self.camera_name}')
         self.get_logger().info(f'YOLO model: {self.model_path}')
+        self.get_logger().info('Camera run topic: /camera_run (0/1)')
+        self.get_logger().info('Publish detections: /cam_date')
         self.get_logger().info('T : Start/Stop recording')
         self.get_logger().info('Q : Quit')
         self.get_logger().info('=' * 50)
+
+    def camera_run_callback(self, msg):
+        self.camera_run_enabled = (msg.data == 1)
 
     def _init_model(self):
         if not self.model_path.exists():
@@ -206,6 +222,9 @@ class RGBRecorderDirect(Node):
     def capture_and_record(self):
         try:
             while self.running and rclpy.ok():
+                if not self.camera_run_enabled:
+                    time.sleep(0.1)
+                    continue
                 try:
                     frames = self.pipeline.wait_for_frames(timeout_ms=1000)
                     color_frame = frames.get_color_frame()
@@ -248,7 +267,9 @@ class RGBRecorderDirect(Node):
         names = det.names if hasattr(det, 'names') else {}
         boxes = det.boxes
 
+        detected_items = []
         if boxes is None or len(boxes) == 0:
+            self._publish_cam_data(detected_items)
             self._maybe_log_route_message()
             return
 
@@ -259,13 +280,24 @@ class RGBRecorderDirect(Node):
                 conf = float(box.conf[0]) if hasattr(box, 'conf') and box.conf is not None else 0.0
                 label = names.get(cls_id, str(cls_id))
                 x1, y1, x2, y2 = [int(v) for v in xyxy]
+                detected_items.append(f'{label}:{x1},{y1},{x2},{y2}')
                 self.get_logger().info(
                     f'DETECT {label} conf={conf:.2f} bbox=({x1},{y1},{x2},{y2})'
                 )
             except Exception as e:
                 self.get_logger().warn(f'Failed to parse detection: {str(e)}')
 
+        self._publish_cam_data(detected_items)
         self._maybe_log_route_message()
+
+    def _publish_cam_data(self, items):
+        now = time.monotonic()
+        if now - self.last_cam_pub_time < 0.5:
+            return
+        self.last_cam_pub_time = now
+        msg = String()
+        msg.data = ';'.join(items)
+        self.cam_data_pub.publish(msg)
 
     def _maybe_log_route_message(self):
         now = time.monotonic()
