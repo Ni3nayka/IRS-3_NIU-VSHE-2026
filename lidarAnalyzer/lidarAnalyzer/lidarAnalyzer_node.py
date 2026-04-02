@@ -13,6 +13,32 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
 
+class SimpleFilter:
+    """Простой экспоненциальный фильтр (EMA)."""
+
+    def __init__(self, alpha=0.6):
+        self.alpha = alpha
+        self.value = None
+        self.initialized = False
+
+    def update(self, new_value):
+        if not self.initialized:
+            self.value = new_value
+            self.initialized = True
+            return new_value
+
+        if math.isinf(new_value) or new_value < 0:
+            self.initialized = False
+            return new_value
+
+        self.value = self.alpha * self.value + (1 - self.alpha) * new_value
+        return self.value
+
+    def reset(self):
+        self.value = None
+        self.initialized = False
+
+
 class WallDetectorNode(Node):
     def __init__(self):
         super().__init__('wall_detector_node')
@@ -24,8 +50,22 @@ class WallDetectorNode(Node):
             'back': (math.pi, math.radians(30)),
         }
 
-        self.min_valid_points = 5
-        self.max_distance_m = 10.0
+        self.declare_parameter('min_valid_points', 5)
+        self.declare_parameter('max_distance_m', 10.0)
+        self.declare_parameter('ema_alpha', 0.6)
+        self.declare_parameter('use_filter', True)
+
+        self.min_valid_points = self.get_parameter('min_valid_points').value
+        self.max_distance_m = self.get_parameter('max_distance_m').value
+        self.alpha = self.get_parameter('ema_alpha').value
+        self.use_filter = self.get_parameter('use_filter').value
+
+        self.filters = {
+            'front': SimpleFilter(self.alpha),
+            'left': SimpleFilter(self.alpha),
+            'right': SimpleFilter(self.alpha),
+            'back': SimpleFilter(self.alpha),
+        }
 
         self.lidar_sub = self.create_subscription(
             LaserScan,
@@ -43,6 +83,8 @@ class WallDetectorNode(Node):
         self.get_logger().info('Wall Detector started')
         self.get_logger().info('  Subscribe: /RplidarC1')
         self.get_logger().info('  Publish:   /lidarAnalyzer')
+        self.get_logger().info(f'  Filter enabled: {self.use_filter}')
+        self.get_logger().info(f'  EMA alpha: {self.alpha}')
 
     def _normalize_angle(self, angle):
         while angle > math.pi:
@@ -91,11 +133,23 @@ class WallDetectorNode(Node):
             'valid': True,
         }
 
+    def _apply_filter(self, direction, distance):
+        if not self.use_filter:
+            return distance
+
+        if math.isinf(distance) or distance < 0:
+            self.filters[direction].reset()
+            return distance
+
+        return self.filters[direction].update(distance)
+
     def lidar_callback(self, msg):
         results = {}
 
         for direction, (center, width) in self.sectors.items():
             results[direction] = self._analyze_sector(msg, center, width)
+            raw_distance = results[direction]['distance']
+            results[direction]['distance'] = self._apply_filter(direction, raw_distance)
 
         self._publish_results(results, msg.header.stamp)
 
@@ -123,6 +177,10 @@ class WallDetectorNode(Node):
             f'R:{results["right"]["distance"]:.2f}m '
             f'B:{results["back"]["distance"]:.2f}m'
         )
+
+    def destroy_node(self):
+        self.get_logger().info('Wall Detector stopped')
+        super().destroy_node()
 
 
 def main(args=None):
