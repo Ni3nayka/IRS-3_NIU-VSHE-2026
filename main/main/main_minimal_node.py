@@ -17,6 +17,7 @@ class MotorTestEncoder(Node):
         self.gy25_angle = None
         self.target_sum = 0
         self.encoder_sum_per_cm = 211 #115000.0 / 510.0
+        self.target_way = "ffrfflfsrrf"
 
     def encoders_callback(self, msg):
         if len(msg.data) < 4:
@@ -236,13 +237,25 @@ class MotorTestEncoder(Node):
         self.wait_for_encoder_initialization()
         self.get_logger().info('Algorithm: initialization done, starting motors')
 
-        delay(4)
-        self.forward(320)
-        left(-180)
-        self.forward(80)
-        self.forward(160)
-        self.forward(80)
-        left(180)
+        for step in self.target_way:
+            if step == 'f':
+                self.forward(80)
+            elif step == 'l':
+                left(90)
+            elif step == 'r':
+                left(-90)
+            elif step == 's':
+                delay(3)
+            else:
+                self.get_logger().warn(f'Unknown step in target_way: {step}')
+
+        # delay(4)
+        # self.forward(320)
+        # left(-180)
+        # self.forward(80)
+        # self.forward(160)
+        # self.forward(80)
+        # left(180)
 
         self.get_logger().info('Algorithm: finishing node')
         self.destroy_node()
